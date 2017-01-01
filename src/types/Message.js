@@ -1,0 +1,217 @@
+'use strict';
+
+/**
+ * Module dependencies.
+ * @private
+ */
+const fetch = require('../lib/fetch');
+
+class Message {
+  /**
+   * Constructor.
+   * @param {Object} [message={}] Объект сообщения [https://vk.com/dev/objects/message]
+   * @param {Client} client Instance of Client
+   * @returns {this}
+   * @public
+   */
+  constructor (message = {}, client) {
+    this.client = client;
+
+    /**
+     * Полное описание полей полученного сообщения 
+     * можно найти здесь: https://vk.com/dev/objects/message
+     */
+    Object.assign(this, message);
+  }
+
+  /**
+   * Удаляет сообщение.
+   * @param {Number/Object} [params=this.id] Параметры запроса (либо ID сообщения)
+   * @returns {Promise}
+   * @public
+   * 
+   * По умолчанию, вызов функции приведет к удалению текущего сообщения.
+   * 
+   * https://vk.com/dev/messages.delete
+   */
+  delete (params = this.id) {
+    if (typeof params === 'number') {
+      params = {
+        message_ids: params
+      }
+    }
+
+    return this.client.call('messages.delete', params);
+  }
+
+  /**
+   * Является ли сообщение аудиозаписью?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/attachments_m
+   */
+  isAudio () {
+    return this.attachments &&
+           this.attachments[0].type === 'audio';
+  }
+
+  /**
+   * Является ли сообщение аудио-сообщением?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/doc
+   */
+  isAudioMessage () {
+    return !!(
+      this.attachments &&
+      this.attachments[0].type === 'doc' &&
+      this.attachments[0].doc.preview &&
+      this.attachments[0].doc.preview.audio_msg
+    );
+  }
+
+  /**
+   * Является ли сообщение граффити?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/doc
+   */
+  isGraffiti () {
+    return !!(
+      this.attachments &&
+      this.attachments[0].type === 'doc' &&
+      this.attachments[0].doc.preview &&
+      this.attachments[0].doc.preview.graffiti
+    );
+  }
+
+  /**
+   * Является ли сообщение фотографией?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/attachments_m
+   */
+  isPhoto () {
+    return this.attachments &&
+           this.attachments[0].type === 'photo';
+  }
+
+  /**
+   * Является ли сообщение стикером?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/attachments_m
+   */
+  isSticker () {
+    return this.attachments &&
+           this.attachments[0].type === 'sticker';
+  }
+
+
+  /**
+   * Является ли сообщение обычным текстом?
+   * @returns {Boolean}
+   * @public
+   * 
+   * https://vk.com/dev/objects/attachments_m
+   */
+  isText () {
+    return this.body &&
+           !this.attachments &&
+           !this.fwd_messages &&
+           !this.geo;
+  }
+
+  /**
+   * Позволяет быстро отправить сообщение в текущий диалог.
+   * @param {String/Object} answer Сообщение-ответ
+   * @returns {Promise}
+   * @public
+   */
+  reply (answer) {
+    if (!answer) {
+      return Promise.reject(new Error('There is nothing to send.'));
+    }
+
+    if (typeof answer === 'string') {
+      answer = {
+        message: answer
+      }
+    }
+
+    return this.send(Object.assign({}, answer, { user_id: this.user_id }));
+  }
+
+  /**
+   * Позволяет быстро ответить фотографией в текущем диалоге.
+   * @param {String/Stream/Object} photo Фотография
+   * @returns {Promise}
+   * @public
+   * 
+   * Аргумент "photo" принимается в таких же форматах, как и для метода client.upload().
+   * Подробнее: https://github.com/olnazx/spotted#clientuploadtype-file-params-afteruploadparams
+   * 
+   * Однако, только в данном методе можно передать URL фотографии, которую нужно загрузить.
+   */
+  replyWithPhoto (photo) {
+    let photoPromise;
+
+    if (typeof photo === 'string') {
+      photoPromise = fetch(photo)
+                       .then(image => image.buffer())
+                       .then(buffer => ({ content: buffer, name: 'image.jpg' }));
+    } else {
+      photoPromise = Promise.resolve(photo);
+    }
+
+    return photoPromise
+      .then(arg => this.client.upload('photo', arg, { peer_id: this.user_id }))
+      .then(response => this.reply({ attachment: `photo${response[0].owner_id}_${response[0].id}` }));
+  }
+
+  /**
+   * Восстанавливает сообщение.
+   * @param {Number} [messageId=this.id] ID сообщения
+   * @returns {Promise}
+   * @public
+   * 
+   * https://vk.com/dev/messages.restore
+   */
+  restore (messageId = this.id) {
+    return this.client.call('messages.restore', { message_id: messageId });
+  }
+
+  /**
+   * Отправляет сообщение.
+   * @param {Object} [params={}] Параметры запроса
+   * @returns {Promise}
+   * @public
+   * 
+   * https://vk.com/dev/messages.send
+   */
+  send (params = {}) {
+    return this.client.call('messages.send', params);
+  }
+
+  /**
+   * Изменяет статус набора текста сообществом в диалоге.
+   * @param {Number} [userId=this.user_id] ID пользователя (== ID диалога)
+   * @returns {Promise}
+   * @public
+   * 
+   * https://vk.com/dev/messages.setActivity
+   */
+  setTyping (userId = this.user_id) {
+    return this.client.call('messages.setActivity', {
+      type: 'typing',
+      user_id: userId
+    });
+  }
+}
+
+module.exports = Message;
